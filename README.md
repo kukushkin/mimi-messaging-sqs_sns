@@ -26,7 +26,17 @@ require "mimi/messaging/sqs_sns"
 
 Mimi::Messaging.configure(
   mq_adapter: "sqs_sns",
-  ...
+
+  # if nil, AWS SDK will guess values from environment
+  mq_aws_region: nil,
+  mq_aws_access_key_id: nil,
+  mq_aws_secret_access_key: nil,
+  mq_aws_sqs_endpoint: nil,
+
+  mq_aws_sqs_read_timeout: 10, # seconds
+  mq_namespace: nil,
+  mq_default_query_timeout: 15, # seconds,
+  mq_reply_queue_prefix: "reply."
 )
 
 Mimi::Messaging.start

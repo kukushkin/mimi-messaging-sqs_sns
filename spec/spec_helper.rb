@@ -1,5 +1,5 @@
 require "bundler/setup"
-require "mimi/messaging/sqs/sns"
+require "mimi/messaging/sqs_sns"
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
