@@ -161,6 +161,17 @@ module Mimi
           raise "Not implemented"
         end
 
+        # Stops all message (command, query and event) processors.
+        #
+        # Stops currently registered processors and stops accepting new messages
+        # for processors.
+        #
+        def stop_all_processors
+          @consumers.each(&:stop)
+          @consumers = []
+          @reply_listener = nil
+        end
+
         # Creates a new queue
         #
         # @param queue_name [String] name of the topic to be created
