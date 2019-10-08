@@ -33,7 +33,7 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "mimi-messaging", "~> 1.0"
+  spec.add_dependency "mimi-messaging", "~> 1.1"
   spec.add_dependency "aws-sdk-sqs", "~> 1.22"
   spec.add_dependency "aws-sdk-sns", "~> 1.19"
 

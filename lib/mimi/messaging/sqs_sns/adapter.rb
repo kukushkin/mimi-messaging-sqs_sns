@@ -75,22 +75,22 @@ module Mimi
         #   Mimi::Messaging.command("users/create", name: "John Smith")
         #
         # @param target [String] "<queue>/<method>"
-        # @param message [Hash]
+        # @param message [Hash,Mimi::Messaging::Message]
         # @param opts [Hash] additional adapter-specific options
         #
         # @return nil
         #
         def command(target, message, _opts = {})
           queue_name, method_name = target.split("/")
-          message_payload = serialize(message)
+          message = Mimi::Messaging::Message.new(message, __method: method_name)
           queue_url = find_queue(queue_name)
-          deliver_message(message_payload, queue_url, __method: method_name)
+          deliver_message(queue_url, message)
         end
 
         # Executes the query to the given target and returns response
         #
         # @param target [String] "<queue>/<method>"
-        # @param message [Hash]
+        # @param message [Hash,Mimi::Messaging::Message]
         # @param opts [Hash] additional options, e.g. :timeout
         #
         # @return [Hash]
@@ -98,18 +98,17 @@ module Mimi
         #
         def query(target, message, opts = {})
           queue_name, method_name = target.split("/")
-          message_payload = serialize(message)
           queue_url = find_queue(queue_name)
           request_id = SecureRandom.hex(8)
           reply_queue = reply_listener.register_request_id(request_id)
 
-          deliver_message(
-            message_payload,
-            queue_url,
+          message = Mimi::Messaging::Message.new(
+            message,
             __method: method_name,
             __reply_queue_url: reply_listener.reply_queue_url,
             __request_id: request_id
           )
+          deliver_message(queue_url, message)
           timeout = opts[:timeout] || options[:mq_default_query_timeout]
           response = nil
           Timeout::timeout(timeout) do
@@ -140,15 +139,21 @@ module Mimi
           opts = opts.dup
           queue_url = find_or_create_queue(queue_name)
           @consumers << Consumer.new(self, queue_url) do |m|
-            message = deserialize(m.body)
-            headers = deserialize_headers(m)
-            method_name = headers[:__method]
-            reply_to = headers[:__reply_queue_url]
+            message = Mimi::Messaging::Message.new(
+              deserialize(m.body),
+              deserialize_headers(m)
+            )
+            method_name = message.headers[:__method]
+            reply_to = message.headers[:__reply_queue_url]
             if reply_to
-              response = processor.call_query(method_name, message, headers: headers)
-              deliver_message(serialize(response), reply_to, __request_id: headers[:__request_id])
+              response = processor.call_query(method_name, message, {})
+              response_message = Mimi::Messaging::Message.new(
+                response,
+                __request_id: message.headers[:__request_id]
+              )
+              deliver_message(reply_to, response_message)
             else
-              processor.call_command(method_name, message, headers: headers)
+              processor.call_command(method_name, message, {})
             end
           end
         end
@@ -204,17 +209,19 @@ module Mimi
 
         # Delivers a message to a queue with given URL.
         #
-        # @param message [String]
         # @param queue_url [String]
-        # @param headers [Hash<Symbol,String>]
+        # @param message [Mimi::Messaging::Message]
         #
-        def deliver_message(message, queue_url, headers = {})
+        def deliver_message(queue_url, message)
           raise ArgumentError, "Non-empty queue URL is expected" unless queue_url
+          unless message.is_a?(Mimi::Messaging::Message)
+            raise ArgumentError, "Message is expected as argument"
+          end
           Mimi::Messaging.log "Delivering message to: #{queue_url}"
           sqs_client.send_message(
             queue_url: queue_url,
-            message_body: message,
-            message_attributes: headers.map do |k, v|
+            message_body: serialize(message),
+            message_attributes: message.headers.map do |k, v|
               [k.to_s, { data_type: "String", string_value: v.to_s }]
             end.to_h
           )
