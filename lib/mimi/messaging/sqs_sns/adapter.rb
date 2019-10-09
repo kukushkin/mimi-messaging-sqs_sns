@@ -62,11 +62,20 @@ module Mimi
         end
 
         def stop
+          stop_all_processors
+          @sqs_client = nil
+        end
+
+        # Stops all message (command, query and event) processors.
+        #
+        # Stops currently registered processors and stops accepting new messages
+        # for processors.
+        #
+        def stop_all_processors
           @consumers&.each(&:stop)
           @consumers = nil
-          @reply_listener&.stop
-          @reply_listener = nil
-          @sqs_client = nil
+          @reply_consumer&.stop
+          @reply_consumer = nil
         end
 
         # Sends the command to the given target
@@ -100,12 +109,12 @@ module Mimi
           queue_name, method_name = target.split("/")
           queue_url = find_queue(queue_name)
           request_id = SecureRandom.hex(8)
-          reply_queue = reply_listener.register_request_id(request_id)
+          reply_queue = reply_consumer.register_request_id(request_id)
 
           message = Mimi::Messaging::Message.new(
             message,
             __method: method_name,
-            __reply_queue_url: reply_listener.reply_queue_url,
+            __reply_queue_url: reply_consumer.reply_queue_url,
             __request_id: request_id
           )
           deliver_message(queue_url, message)
@@ -117,7 +126,15 @@ module Mimi
           deserialize(response.body)
         end
 
+        # Broadcasts the event with the given target
+        #
+        # @param target [String] "<topic>#<event_type>", e.g. "customers#created"
+        # @param message [Mimi::Messaging::Message]
+        # @param opts [Hash] additional options
+        #
         def event(target, message, _opts = {})
+          topic_name, event_type = target.split("#")
+
           raise "Not implemented"
         end
 
@@ -164,17 +181,6 @@ module Mimi
 
         def start_event_processor_with_queue(topic_name, queue_name, processor, opts = {})
           raise "Not implemented"
-        end
-
-        # Stops all message (command, query and event) processors.
-        #
-        # Stops currently registered processors and stops accepting new messages
-        # for processors.
-        #
-        def stop_all_processors
-          @consumers.each(&:stop)
-          @consumers = []
-          @reply_listener = nil
         end
 
         # Creates a new queue
@@ -283,12 +289,13 @@ module Mimi
 
         # Returns the configured reply listener for this process
         #
-        # @return [ReplyListener]
+        # @return [ReplyConsumer]
         #
-        def reply_listener
-          @reply_listener ||= begin
+        def reply_consumer
+          @reply_consumer ||= begin
             reply_queue_name = options[:mq_reply_queue_prefix] + SecureRandom.hex(8)
-            Mimi::Messaging::SQS_SNS::ReplyListener.new(self, reply_queue_name)
+            reply_queue_url = create_queue(reply_queue_name)
+            Mimi::Messaging::SQS_SNS::ReplyConsumer.new(self, reply_queue_url)
           end
         end
 

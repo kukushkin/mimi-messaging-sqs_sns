@@ -4,18 +4,17 @@ module Mimi
   module Messaging
     module SQS_SNS
       #
-      # ReplyListener listens on a particular SQS queue for replies
+      # ReplyConsumer listens on a particular SQS queue for replies
       # and passes them to registered Queues (see Ruby ::Queue class).
       #
-      class ReplyListener
-        attr_reader :reply_queue_name, :reply_queue_url
+      class ReplyConsumer
+        attr_reader :reply_queue_url
 
-        def initialize(adapter, reply_queue_name)
+        def initialize(adapter, reply_queue_url)
           @mutex = Mutex.new
           @queues = {}
-          @reply_queue_name = reply_queue_name
           @adapter = adapter
-          @reply_queue_url = adapter.create_queue(reply_queue_name)
+          @reply_queue_url = reply_queue_url
           @consumer = Consumer.new(adapter, reply_queue_url) do |message|
             dispatch_message(message)
           end
@@ -73,7 +72,7 @@ module Mimi
           Mimi::Messaging.log "reply listener failed to process reply: #{e}"
           # TODO: propagate exception to main thread?
         end
-      end # class ReplyListener
+      end # class ReplyConsumer
     end # module SQS_SNS
   end # module Messaging
 end # module Mimi

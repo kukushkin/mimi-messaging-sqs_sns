@@ -12,4 +12,4 @@ end # module Mimi
 
 require_relative "sqs_sns/adapter"
 require_relative "sqs_sns/consumer"
-require_relative "sqs_sns/reply_listener"
+require_relative "sqs_sns/reply_consumer"
