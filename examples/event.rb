@@ -18,7 +18,8 @@ Mimi::Messaging.configure(
   mq_aws_secret_access_key: AWS_SECRET_ACCESS_KEY,
   mq_aws_region:            AWS_REGION,
   mq_aws_sqs_endpoint:      AWS_SQS_ENDPOINT_URL,
-  mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL
+  mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL,
+  mq_log_at_level: :info
 )
 adapter = Mimi::Messaging.adapter
 
@@ -27,12 +28,7 @@ adapter.start
 t_start = Time.now
 COUNT.times do |i|
   t = Time.now
-  result = adapter.query("test/hello", i: i) # rand(100))
-  puts "result: #{result.to_h}, t: %.3fs" % (Time.now - t)
+  puts "Publishing event: #{i}"
+  adapter.event("hello#tested", i: i) # rand(100))
   sleep 1
 end
-
-t_elapsed = Time.now - t_start
-puts "t_elapsed: %.3fs" % t_elapsed
-adapter.stop
-puts "t.avg: %.3fs" % (t_elapsed / COUNT)

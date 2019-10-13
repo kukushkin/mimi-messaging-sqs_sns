@@ -10,13 +10,16 @@ AWS_SECRET_ACCESS_KEY = "bar"
 
 class Processor
   def self.call_command(method_name, message, opts)
-    puts "COMMAND: #{method_name}, #{message}, headers: #{opts[:headers]}"
+    puts "COMMAND: #{method_name}, #{message}, headers: #{message.headers}"
   end
 
   def self.call_query(method_name, message, opts)
-    # puts "QUERY: #{method_name}, #{message}, headers: #{opts[:headers]}"
-    puts "QUERY: #{method_name}, headers: #{opts[:headers]}"
+    puts "QUERY: #{method_name}, #{message}, headers: #{message.headers}"
     {}
+  end
+
+  def self.call_event(event_type, message, opts)
+    puts "EVENT: #{event_type}, #{message}, headers: #{message.headers}"
   end
 end # class Processor
 
@@ -30,14 +33,16 @@ Mimi::Messaging.configure(
   mq_aws_secret_access_key: AWS_SECRET_ACCESS_KEY,
   mq_aws_region:            AWS_REGION,
   mq_aws_sqs_endpoint:      AWS_SQS_ENDPOINT_URL,
-  mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL
+  mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL,
+  mq_log_at_level: :info
 )
 adapter = Mimi::Messaging.adapter
-queue_name = "test"
-adapter.start
-puts "Registering processor on '#{queue_name}'"
-adapter.start_request_processor(queue_name, Processor)
 
+topic_name = "hello"
+queue_name = "listener.hello"
+adapter.start
+puts "Registering event processor on '#{topic_name}'->'#{queue_name}'"
+adapter.start_event_processor_with_queue(topic_name, queue_name, Processor)
 
 begin
   loop do
