@@ -78,6 +78,7 @@ module Mimi
         def start
           @sqs_client = Aws::SQS::Client.new(sqs_client_config)
           @sns_client = Aws::SNS::Client.new(sns_client_config)
+          check_availability!
         end
 
         def stop
@@ -248,6 +249,23 @@ module Mimi
           params.compact
         end
 
+        # Checks SQS and SNS clients availability
+        #
+        # @raise [Mimi::Messaging::ConnectionError]
+        #
+        def check_availability!
+          begin
+            queue_registry("test")
+          rescue StandardError => e
+            raise Mimi::Messaging::ConnectionError, "SQS connection is not available: #{e}"
+          end
+          begin
+            topic_registry("test")
+          rescue StandardError => e
+            raise Mimi::Messaging::ConnectionError, "SNS connection is not available: #{e}"
+          end
+        end
+
         # Creates a new queue
         #
         # @param queue_name [String] name of the topic to be created
@@ -300,6 +318,8 @@ module Mimi
           end
         rescue Aws::SQS::Errors::NonExistentQueue
           nil
+        rescue StandardError => e
+          raise Mimi::Messaging::ConnectionError, "Failed to get queue url '#{queue_name}': #{e}"
         end
 
         # Converts a topic or queue name to a fully qualified (with namespace)
