@@ -30,6 +30,25 @@ module Mimi
 
         private
 
+        # A method invoked in a loop to read/wait for a message
+        # from the associated queue and process it
+        #
+        # @param adapter [Mimi::Messaging::SQS_SNS::Adapter]
+        # @param queue_url [String]
+        #
+        def read_and_process_message(adapter, queue_url)
+          message = read_message(adapter, queue_url)
+          return unless message
+          Mimi::Messaging.log "Read message from: #{queue_url}"
+          block.call(message)
+          ack_message(adapter, queue_url, message)
+        rescue StandardError => e
+          Mimi::Messaging.logger&.error(
+            "#{self.class}: failed to read and process message from: #{queue_url}," \
+            " error: (#{e.class}) #{e}"
+          )
+        end
+
         def read_message(adapter, queue_url)
           result = adapter.sqs_client.receive_message(
             queue_url: queue_url,
