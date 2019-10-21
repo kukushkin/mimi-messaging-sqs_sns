@@ -65,6 +65,7 @@ module Mimi
           @mutex.synchronize do
             headers = deserialize_headers(message)
             request_id = headers[:__request_id]
+            Mimi::Messaging.log "dispatching response, headers:#{headers}"
             queue = @queues.delete(request_id)
           end
           queue&.push(message)

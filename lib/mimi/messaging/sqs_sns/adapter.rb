@@ -290,7 +290,7 @@ module Mimi
           unless message.is_a?(Mimi::Messaging::Message)
             raise ArgumentError, "Message is expected as argument"
           end
-          Mimi::Messaging.log "Delivering message to: #{queue_url}"
+          Mimi::Messaging.log "Delivering message to: #{queue_url}, headers: #{message.headers}"
           sqs_client.send_message(
             queue_url: queue_url,
             message_body: serialize(message),
