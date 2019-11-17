@@ -219,6 +219,45 @@ module Mimi
           end
         end
 
+        # Creates a new queue
+        #
+        # @param queue_name [String] name of the topic to be created
+        # @return [String] a new queue URL
+        #
+        def create_queue(queue_name)
+          fqn = sqs_sns_converted_full_name(queue_name)
+          Mimi::Messaging.log "Creating a queue: #{fqn}"
+          result = sqs_client.create_queue(queue_name: fqn)
+          result.queue_url
+        rescue StandardError => e
+          raise Mimi::Messaging::ConnectionError, "Failed to create queue '#{queue_name}': #{e}"
+        end
+
+
+        # Finds a queue URL for a queue with given name.
+        #
+        # If an existing queue with this name is not found,
+        # the method will try to create a new one.
+        #
+        # @param queue_name [String]
+        # @return [String] a queue URL
+        #
+        def find_or_create_queue(queue_name)
+          queue_registry(queue_name) || create_queue(queue_name)
+        end
+
+        # Deletes a queue identified by the queue URL
+        #
+        # @param queue_url [String]
+        #
+        def delete_queue(queue_url)
+          Mimi::Messaging.log "Deleting a queue: #{queue_url}"
+          sqs_client.delete_queue(queue_url: queue_url)
+        rescue StandardError => e
+          raise Mimi::Messaging::ConnectionError,
+            "Failed to delete queue with url '#{queue_url}': #{e}"
+        end
+
         private
 
         # Returns configuration parameters for AWS SQS client
@@ -264,20 +303,6 @@ module Mimi
           rescue StandardError => e
             raise Mimi::Messaging::ConnectionError, "SNS connection is not available: #{e}"
           end
-        end
-
-        # Creates a new queue
-        #
-        # @param queue_name [String] name of the topic to be created
-        # @return [String] a new queue URL
-        #
-        def create_queue(queue_name)
-          fqn = sqs_sns_converted_full_name(queue_name)
-          Mimi::Messaging.log "Creating a queue: #{fqn}"
-          result = sqs_client.create_queue(queue_name: fqn)
-          result.queue_url
-        rescue StandardError => e
-          raise Mimi::Messaging::ConnectionError, "Failed to create queue '#{queue_name}': #{e}"
         end
 
         # Delivers a message to a queue with given URL.
@@ -349,18 +374,6 @@ module Mimi
           )
         end
 
-        # Finds a queue URL for a queue with given name.
-        #
-        # If an existing queue with this name is not found,
-        # the method will try to create a new one.
-        #
-        # @param queue_name [String]
-        # @return [String] a queue URL
-        #
-        def find_or_create_queue(queue_name)
-          queue_registry(queue_name) || create_queue(queue_name)
-        end
-
         # Returns the configured reply listener for this process
         #
         # @return [ReplyConsumer]
@@ -368,8 +381,7 @@ module Mimi
         def reply_consumer
           @reply_consumer ||= begin
             reply_queue_name = options[:mq_reply_queue_prefix] + SecureRandom.hex(8)
-            reply_queue_url = create_queue(reply_queue_name)
-            Mimi::Messaging::SQS_SNS::ReplyConsumer.new(self, reply_queue_url)
+            Mimi::Messaging::SQS_SNS::ReplyConsumer.new(self, reply_queue_name)
           end
         end
 

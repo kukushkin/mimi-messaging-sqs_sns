@@ -8,25 +8,23 @@ module Mimi
       # and passes them to registered Queues (see Ruby ::Queue class).
       #
       class ReplyConsumer
-        attr_reader :reply_queue_url
+        attr_reader :reply_queue_name, :reply_queue_url
 
-        def initialize(adapter, reply_queue_url)
+        def initialize(adapter, reply_queue_name)
           @mutex = Mutex.new
           @queues = {}
           @adapter = adapter
-          @reply_queue_url = reply_queue_url
-          @consumer = Consumer.new(adapter, reply_queue_url) do |message|
+          @reply_queue_name = reply_queue_name
+          @consumer = TemporaryQueueConsumer.new(adapter, reply_queue_name) do |message|
             dispatch_message(message)
           end
+          @reply_queue_url = @consumer.queue_url
         end
 
         def stop
-          begin
-            @consumer.stop
-          rescue StandardError => e
-            raise Mimi::Messaging::Error, "Failed to stop consumer: #{e}"
-          end
-          # TODO: adapter.sqs_client.delete_queue(reply_queue_url)
+          @consumer.stop
+        rescue StandardError => e
+          raise Mimi::Messaging::Error, "Failed to stop reply consumer: #{e}"
         end
 
         # Register a new request_id to listen for.

@@ -4,20 +4,15 @@ module Mimi
   module Messaging
     module SQS_SNS
       #
-      # Message processor for SQS queues
+      # Message consumer for SQS queues
       #
       class Consumer
         def initialize(adapter, queue_url, &block)
-          @block = block
           @stop_requested = false
           Mimi::Messaging.log "Starting consumer for: #{queue_url}"
           @consumer_thread = Thread.new do
             while not @stop_requested do
-              message = read_message(adapter, queue_url)
-              next unless message
-              Mimi::Messaging.log "Read message from: #{queue_url}"
-              block.call(message)
-              ack_message(adapter, queue_url, message)
+              read_and_process_message(adapter, queue_url, block)
             end
             Mimi::Messaging.log "Stopping consumer for: #{queue_url}"
           end
@@ -35,8 +30,9 @@ module Mimi
         #
         # @param adapter [Mimi::Messaging::SQS_SNS::Adapter]
         # @param queue_url [String]
+        # @param block [Proc] a block to be invoked when a message is received
         #
-        def read_and_process_message(adapter, queue_url)
+        def read_and_process_message(adapter, queue_url, block)
           message = read_message(adapter, queue_url)
           return unless message
           Mimi::Messaging.log "Read message from: #{queue_url}"
