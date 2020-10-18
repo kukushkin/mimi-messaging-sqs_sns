@@ -190,7 +190,7 @@ module Mimi
                 response,
                 __request_id: message.headers[:__request_id]
               )
-              deliver_message_queue(reply_to, response_message)
+              deliver_query_respone(reply_to, response_message)
             else
               processor.call_command(method_name, message, {})
             end
@@ -325,6 +325,23 @@ module Mimi
           )
         rescue StandardError => e
           raise Mimi::Messaging::ConnectionError, "Failed to deliver message to '#{queue_url}': #{e}"
+        end
+
+        # Delivers a message as a response to a QUERY
+        #
+        # Responses are allowed to fail. There can be a number of reasons
+        # why responses fail: reply queue does not exist (anymore?),
+        # response message is too big. In any case the error is reported,
+        # but the QUERY message is acknowledged as a successfully processed.
+        #
+        # @param queue_url [String]
+        # @param message [Mimi::Messaging::Message]
+        #
+        def deliver_query_respone(queue_url, message)
+          deliver_message_queue(queue_url, message)
+        rescue Mimi::Messaging::ConnectionError => e
+          Mimi::Messaging.logger&.warn("Failed to deliver QRY response: #{e}")
+          # NOTE: error is recovered
         end
 
         # Returns URL of a queue with a given name.

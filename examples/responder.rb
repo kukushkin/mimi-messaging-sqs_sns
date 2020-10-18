@@ -3,8 +3,8 @@
 require "mimi/messaging/sqs_sns"
 
 AWS_REGION = "eu-west-1"
-AWS_SQS_ENDPOINT_URL = "http://localstack:4576"
-AWS_SNS_ENDPOINT_URL = "http://localstack:4575"
+AWS_SQS_ENDPOINT_URL = "http://localstack:4566"
+AWS_SNS_ENDPOINT_URL = "http://localstack:4566"
 AWS_ACCESS_KEY_ID = "foo"
 AWS_SECRET_ACCESS_KEY = "bar"
 
@@ -22,7 +22,7 @@ end # class Processor
 
 
 logger = Logger.new(STDOUT)
-logger.level = Logger::INFO
+logger.level = Logger::DEBUG
 Mimi::Messaging.use(logger: logger, serializer: Mimi::Messaging::JsonSerializer)
 Mimi::Messaging.configure(
   mq_adapter: "sqs_sns",
