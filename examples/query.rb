@@ -8,6 +8,7 @@ AWS_SQS_ENDPOINT_URL  = "http://localstack:4566"
 AWS_SNS_ENDPOINT_URL  = "http://localstack:4566"
 AWS_ACCESS_KEY_ID     = "foo"
 AWS_SECRET_ACCESS_KEY = "bar"
+AWS_SQS_SNS_KMS_MASTER_KEY_ID = "blah"
 
 logger = Logger.new(STDOUT)
 logger.level = Logger::INFO
@@ -18,7 +19,8 @@ Mimi::Messaging.configure(
   mq_aws_secret_access_key: AWS_SECRET_ACCESS_KEY,
   mq_aws_region:            AWS_REGION,
   mq_aws_sqs_endpoint:      AWS_SQS_ENDPOINT_URL,
-  mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL
+  mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL,
+  mq_aws_sqs_sns_kms_master_key_id: AWS_SQS_SNS_KMS_MASTER_KEY_ID
 )
 adapter = Mimi::Messaging.adapter
 

@@ -11,13 +11,21 @@ module Mimi
           @stop_requested = false
           Mimi::Messaging.log "Starting consumer for: #{queue_url}"
           @consumer_thread = Thread.new do
-            while not @stop_requested do
+            while not @stop_requested
               read_and_process_message(adapter, queue_url, block)
             end
             Mimi::Messaging.log "Stopping consumer for: #{queue_url}"
           end
         end
 
+        # Requests the Consumer to stop, without actually waiting for it
+        #
+        def signal_stop
+          @stop_requested = true
+        end
+
+        # Requests the Consumer to stop AND waits until it does
+        #
         def stop
           @stop_requested = true
           @consumer_thread.join
@@ -35,6 +43,7 @@ module Mimi
         def read_and_process_message(adapter, queue_url, block)
           message = read_message(adapter, queue_url)
           return unless message
+
           Mimi::Messaging.log "Read message from: #{queue_url}"
           block.call(message)
           ack_message(adapter, queue_url, message)
@@ -54,6 +63,7 @@ module Mimi
           )
           return nil if result.messages.count == 0
           return result.messages.first if result.messages.count == 1
+
           raise Mimi::Messaging::ConnectionError, "Unexpected number of messages read"
         end
 
