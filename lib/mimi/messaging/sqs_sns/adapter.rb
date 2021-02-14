@@ -56,7 +56,8 @@ module Mimi
           mq_aws_sqs_endpoint: nil,
           mq_aws_sns_endpoint: nil,
 
-          mq_aws_sqs_read_timeout: 10, # seconds
+          mq_aws_sqs_sns_kms_master_key_id: nil,
+          mq_aws_sqs_read_timeout: 20, # seconds
         }.freeze
 
         # Initializes SQS/SNS adapter
@@ -93,6 +94,7 @@ module Mimi
         # for processors.
         #
         def stop_all_processors
+          @consumers&.each(&:signal_stop)
           @consumers&.each(&:stop)
           @consumers = nil
           @reply_consumer&.stop
@@ -227,12 +229,15 @@ module Mimi
         def create_queue(queue_name)
           fqn = sqs_sns_converted_full_name(queue_name)
           Mimi::Messaging.log "Creating a queue: #{fqn}"
-          result = sqs_client.create_queue(queue_name: fqn)
+          attrs = {}
+          if options[:mq_aws_sqs_sns_kms_master_key_id]
+            attrs["KmsMasterKeyId"] = options[:mq_aws_sqs_sns_kms_master_key_id]
+          end
+          result = sqs_client.create_queue(queue_name: fqn, attributes: attrs)
           result.queue_url
         rescue StandardError => e
           raise Mimi::Messaging::ConnectionError, "Failed to create queue '#{queue_name}': #{e}"
         end
-
 
         # Finds a queue URL for a queue with given name.
         #
@@ -315,6 +320,7 @@ module Mimi
           unless message.is_a?(Mimi::Messaging::Message)
             raise ArgumentError, "Message is expected as argument"
           end
+
           Mimi::Messaging.log "Delivering message to: #{queue_url}, headers: #{message.headers}"
           sqs_client.send_message(
             queue_url: queue_url,
@@ -479,7 +485,11 @@ module Mimi
         def create_topic(topic_name)
           fqn = sqs_sns_converted_full_name(topic_name)
           Mimi::Messaging.log "Creating a topic: #{fqn}"
-          result = sns_client.create_topic(name: fqn)
+          attrs = {}
+          if options[:mq_aws_sqs_sns_kms_master_key_id]
+            attrs["KmsMasterKeyId"] = options[:mq_aws_sqs_sns_kms_master_key_id]
+          end
+          result = sns_client.create_topic(name: fqn, attributes: attrs)
           result.topic_arn
         rescue StandardError => e
           raise Mimi::Messaging::ConnectionError, "Failed to create topic '#{topic_name}': #{e}"
@@ -496,7 +506,7 @@ module Mimi
           )
           queue_arn = result.attributes["QueueArn"]
           Mimi::Messaging.log "Subscribing queue to a topic: '#{topic_arn}'->'#{queue_url}'"
-          result = sns_client.subscribe(
+          _result = sns_client.subscribe(
             topic_arn: topic_arn,
             protocol: "sqs",
             endpoint: queue_arn,
@@ -518,6 +528,7 @@ module Mimi
           unless message.is_a?(Mimi::Messaging::Message)
             raise ArgumentError, "Message is expected as argument"
           end
+
           Mimi::Messaging.log "Delivering message to: #{topic_arn}"
           sns_client.publish(
             topic_arn: topic_arn,
