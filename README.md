@@ -2,6 +2,9 @@
 
 AWS SQS/SNS adapter for [mimi-messaging](https://github.com/kukushkin/mimi-messaging).
 
+* [Changes](CHANGELOG.md)
+
+
 ## Installation
 
 Add this line to your application's Gemfile:
@@ -42,7 +45,6 @@ Mimi::Messaging.configure(
 
 Mimi::Messaging.start
 ```
-
 
 ## Contributing
 
