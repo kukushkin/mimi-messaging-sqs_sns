@@ -3,8 +3,9 @@
 require "mimi/messaging"
 require "aws-sdk-sqs"
 require "aws-sdk-sns"
-require "timeout"
 require "securerandom"
+require "concurrent"
+require_relative "timeout_queue"
 
 module Mimi
   module Messaging
@@ -40,7 +41,7 @@ module Mimi
           "." => "-"
         }.freeze
 
-        attr_reader :options, :sqs_client, :sns_client
+        attr_reader :options, :sqs_client, :sns_client, :worker_pool
 
         register_adapter_name "sqs_sns"
 
@@ -48,6 +49,11 @@ module Mimi
           mq_namespace: nil,
           mq_default_query_timeout: 15, # seconds,
           mq_reply_queue_prefix: "reply-",
+
+          # worker pool parameters
+          mq_worker_pool_min_threads: 1,
+          mq_worker_pool_max_threads: 16,
+          mq_worker_pool_max_backlog: 16,
 
           # if nil, AWS SDK will guess values from environment
           mq_aws_region: nil,
@@ -74,16 +80,19 @@ module Mimi
         #
         def initialize(options)
           @options = DEFAULT_OPTIONS.merge(options).dup
+          @reply_consumer_mutex = Mutex.new
         end
 
         def start
           @sqs_client = Aws::SQS::Client.new(sqs_client_config)
           @sns_client = Aws::SNS::Client.new(sns_client_config)
+          start_worker_pool!
           check_availability!
         end
 
         def stop
           stop_all_processors
+          stop_worker_pool!
           @sqs_client = nil
           @sns_client = nil
         end
@@ -126,7 +135,7 @@ module Mimi
         # @param opts [Hash] additional options, e.g. :timeout
         #
         # @return [Hash]
-        # @raise [SomeError,TimeoutError]
+        # @raise [SomeError,Timeout::Error]
         #
         def query(target, message, opts = {})
           queue_name, method_name = target.split("/")
@@ -142,10 +151,7 @@ module Mimi
           )
           deliver_message_queue(queue_url, message)
           timeout = opts[:timeout] || options[:mq_default_query_timeout]
-          response = nil
-          Timeout::timeout(timeout) do
-            response = reply_queue.pop
-          end
+          response = reply_queue.pop(true, timeout)
           deserialize(response.body)
         end
 
@@ -180,22 +186,14 @@ module Mimi
           opts = opts.dup
           queue_url = find_or_create_queue(queue_name)
           @consumers << Consumer.new(self, queue_url) do |m|
-            message = Mimi::Messaging::Message.new(
-              deserialize(m.body),
-              deserialize_headers(m)
-            )
-            method_name = message.headers[:__method]
-            reply_to = message.headers[:__reply_queue_url]
-            if reply_to
-              response = processor.call_query(method_name, message, {})
-              response_message = Mimi::Messaging::Message.new(
-                response,
-                __request_id: message.headers[:__request_id]
-              )
-              deliver_query_respone(reply_to, response_message)
-            else
-              processor.call_command(method_name, message, {})
+            worker_pool.post do
+              process_request_message(processor, m)
             end
+          rescue Concurrent::RejectedExecutionError
+            # the backlog is overflown, put the message back
+            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
+              "(workers:#{worker_pool.length}, backlog:#{worker_pool.queue_length})"
+            raise Mimi::Messaging::NACK # exception raised in Consumer thread
           end
         end
 
@@ -212,12 +210,14 @@ module Mimi
           queue_url = find_or_create_queue(queue_name)
           subscribe_topic_queue(topic_arn, queue_url)
           @consumers << Consumer.new(self, queue_url) do |m|
-            message = Mimi::Messaging::Message.new(
-              deserialize(m.body),
-              deserialize_headers(m)
-            )
-            event_type = message.headers[:__event_type]
-            processor.call_event(event_type, message, {})
+            worker_pool.post do
+              process_event_message(processor, m)
+            end
+          rescue Concurrent::RejectedExecutionError
+            # the backlog is overflown, put the message back
+            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
+              "(workers:#{worker_pool.length}, backlog:#{worker_pool.queue_length})"
+            raise Mimi::Messaging::NACK # exception raised in Consumer thread
           end
         end
 
@@ -333,6 +333,30 @@ module Mimi
           raise Mimi::Messaging::ConnectionError, "Failed to deliver message to '#{queue_url}': #{e}"
         end
 
+        # Processes an incoming COMMAND or QUERY message
+        #
+        # @param processor [#call_query(),#call_command()] request processor object
+        # @param sqs_message
+        #
+        def process_request_message(processor, sqs_message)
+          message = Mimi::Messaging::Message.new(
+            deserialize(sqs_message.body),
+            deserialize_headers(sqs_message)
+          )
+          method_name = message.headers[:__method]
+          reply_to = message.headers[:__reply_queue_url]
+          if reply_to
+            response = processor.call_query(method_name, message, {})
+            response_message = Mimi::Messaging::Message.new(
+              response,
+              __request_id: message.headers[:__request_id]
+            )
+            deliver_query_response(reply_to, response_message)
+          else
+            processor.call_command(method_name, message, {})
+          end
+        end
+
         # Delivers a message as a response to a QUERY
         #
         # Responses are allowed to fail. There can be a number of reasons
@@ -343,7 +367,7 @@ module Mimi
         # @param queue_url [String]
         # @param message [Mimi::Messaging::Message]
         #
-        def deliver_query_respone(queue_url, message)
+        def deliver_query_response(queue_url, message)
           deliver_message_queue(queue_url, message)
         rescue Mimi::Messaging::ConnectionError => e
           Mimi::Messaging.logger&.warn("Failed to deliver QRY response: #{e}")
@@ -402,9 +426,11 @@ module Mimi
         # @return [ReplyConsumer]
         #
         def reply_consumer
-          @reply_consumer ||= begin
-            reply_queue_name = options[:mq_reply_queue_prefix] + SecureRandom.hex(8)
-            Mimi::Messaging::SQS_SNS::ReplyConsumer.new(self, reply_queue_name)
+          @reply_consumer_mutex.synchronize do
+            @reply_consumer ||= begin
+              reply_queue_name = options[:mq_reply_queue_prefix] + SecureRandom.hex(8)
+              Mimi::Messaging::SQS_SNS::ReplyConsumer.new(self, reply_queue_name)
+            end
           end
         end
 
@@ -539,6 +565,46 @@ module Mimi
           )
         rescue StandardError => e
           raise Mimi::Messaging::ConnectionError, "Failed to deliver message to '#{topic_arn}': #{e}"
+        end
+
+        # Processes an incoming EVENT message
+        #
+        # @param processor [#call_event()] event processor object
+        # @param sqs_message []
+        #
+        def process_event_message(processor, sqs_message)
+          message = Mimi::Messaging::Message.new(
+            deserialize(sqs_message.body),
+            deserialize_headers(sqs_message)
+          )
+          event_type = message.headers[:__event_type]
+          processor.call_event(event_type, message, {})
+        end
+
+        # Starts the worker pool using current configuration
+        #
+        # @return [Concurrent::ThreadPoolExecutor]
+        #
+        def start_worker_pool!
+          Mimi::Messaging.log "Starting worker pool, " \
+            "min_threads:#{options[:mq_worker_pool_min_threads]}, " \
+            "max_threads:#{options[:mq_worker_pool_max_threads]}, " \
+            "max_backlog:#{options[:mq_worker_pool_max_backlog]}"
+
+          @worker_pool = Concurrent::ThreadPoolExecutor.new(
+            min_threads: options[:mq_worker_pool_min_threads],
+            max_threads: options[:mq_worker_pool_max_threads],
+            max_queue: options[:mq_worker_pool_max_backlog],
+            fallback_policy: :abort
+          )
+        end
+
+        # Gracefully stops the worker pool, allowing all threads to finish their jobs
+        #
+        def stop_worker_pool!
+          Mimi::Messaging.log "Stopping worker pool"
+          @worker_pool.shutdown
+          @worker_pool.wait_for_termination
         end
       end # class Adapter
     end # module SQS_SNS

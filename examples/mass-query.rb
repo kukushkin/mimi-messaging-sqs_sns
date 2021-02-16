@@ -2,6 +2,9 @@
 
 require "mimi/messaging/sqs_sns"
 
+COUNT = 10
+THREADS = 10
+QUERY_TIMEOUT = 60
 AWS_REGION            = "eu-west-1"
 AWS_SQS_ENDPOINT_URL  = "http://localstack:4566"
 AWS_SNS_ENDPOINT_URL  = "http://localstack:4566"
@@ -9,22 +12,8 @@ AWS_ACCESS_KEY_ID     = "foo"
 AWS_SECRET_ACCESS_KEY = "bar"
 AWS_SQS_SNS_KMS_MASTER_KEY_ID = "blah"
 
-class Processor
-  def self.call_command(method_name, message, opts)
-    puts "COMMAND: #{method_name}, #{message}, headers: #{opts[:headers]}"
-  end
-
-  def self.call_query(method_name, message, opts)
-    # puts "QUERY: #{method_name}, #{message}, headers: #{opts[:headers]}"
-    puts "QUERY: #{method_name}, headers: #{opts[:headers]}"
-    sleep 1 # imitate work
-    {}
-  end
-end # class Processor
-
-
 logger = Logger.new(STDOUT)
-logger.level = Logger::DEBUG
+logger.level = Logger::INFO
 Mimi::Messaging.use(logger: logger, serializer: Mimi::Messaging::JsonSerializer)
 Mimi::Messaging.configure(
   mq_adapter: "sqs_sns",
@@ -34,23 +23,31 @@ Mimi::Messaging.configure(
   mq_aws_sqs_endpoint:      AWS_SQS_ENDPOINT_URL,
   mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL,
   mq_aws_sqs_sns_kms_master_key_id: AWS_SQS_SNS_KMS_MASTER_KEY_ID,
-  mq_worker_pool_min_threads: 1,
-  mq_worker_pool_max_threads: 2,
-  mq_worker_pool_max_backlog: 4,
-  mq_log_at_level: :info
+  mq_default_query_timeout: QUERY_TIMEOUT
 )
 adapter = Mimi::Messaging.adapter
-queue_name = "test"
+
 adapter.start
-puts "Registering processor on '#{queue_name}'"
-adapter.start_request_processor(queue_name, Processor)
 
-
-begin
-  loop do
-    sleep 1
+t_start = Time.now
+t_queries = []
+threads = []
+THREADS.times do |ti|
+  threads << Thread.new do
+    COUNT.times do |i|
+      t = Time.now
+      result = adapter.query("test/hello", i: i) # rand(100))
+      t = Time.now - t
+      t_queries << t
+      puts "result: #{result.to_h}, t: %.3fs" % t
+      sleep 0.1
+    end
   end
-ensure
-  puts "Stopping adapter"
-  adapter.stop
 end
+
+threads.each(&:join)
+
+t_elapsed = Time.now - t_start
+puts "t_elapsed: %.3fs" % t_elapsed
+adapter.stop
+puts "t.avg: %.3fs" % (t_queries.sum / t_queries.count)
