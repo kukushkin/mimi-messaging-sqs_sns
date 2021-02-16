@@ -36,7 +36,7 @@ module Mimi
         # @return [Queue] a new Queue object registered for this request_id
         #
         def register_request_id(request_id)
-          queue = Queue.new
+          queue = TimeoutQueue.new
           @mutex.synchronize do
             queue = @queues[request_id] ||= queue
           end

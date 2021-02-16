@@ -3,9 +3,9 @@
 require "mimi/messaging"
 require "aws-sdk-sqs"
 require "aws-sdk-sns"
-require "timeout"
 require "securerandom"
 require "concurrent"
+require_relative "timeout_queue"
 
 module Mimi
   module Messaging
@@ -135,7 +135,7 @@ module Mimi
         # @param opts [Hash] additional options, e.g. :timeout
         #
         # @return [Hash]
-        # @raise [SomeError,TimeoutError]
+        # @raise [SomeError,Timeout::Error]
         #
         def query(target, message, opts = {})
           queue_name, method_name = target.split("/")
@@ -151,10 +151,7 @@ module Mimi
           )
           deliver_message_queue(queue_url, message)
           timeout = opts[:timeout] || options[:mq_default_query_timeout]
-          response = nil
-          Timeout::timeout(timeout) do
-            response = reply_queue.pop
-          end
+          response = reply_queue.pop(true, timeout)
           deserialize(response.body)
         end
 
