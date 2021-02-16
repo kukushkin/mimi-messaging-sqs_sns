@@ -3,8 +3,8 @@
 require "mimi/messaging/sqs_sns"
 
 AWS_REGION = "eu-west-1"
-AWS_SQS_ENDPOINT_URL = "http://localstack:4576"
-AWS_SNS_ENDPOINT_URL = "http://localstack:4575"
+AWS_SQS_ENDPOINT_URL  = "http://localstack:4566"
+AWS_SNS_ENDPOINT_URL  = "http://localstack:4566"
 AWS_ACCESS_KEY_ID = "foo"
 AWS_SECRET_ACCESS_KEY = "bar"
 
@@ -20,6 +20,7 @@ class Processor
 
   def self.call_event(event_type, message, opts)
     puts "EVENT: #{event_type}, #{message}, headers: #{message.headers}"
+    sleep 1 # imitate work
   end
 end # class Processor
 
@@ -34,6 +35,9 @@ Mimi::Messaging.configure(
   mq_aws_region:            AWS_REGION,
   mq_aws_sqs_endpoint:      AWS_SQS_ENDPOINT_URL,
   mq_aws_sns_endpoint:      AWS_SNS_ENDPOINT_URL,
+  mq_worker_pool_min_threads: 1,
+  mq_worker_pool_max_threads: 2,
+  mq_worker_pool_max_backlog: 4,
   mq_log_at_level: :info
 )
 adapter = Mimi::Messaging.adapter
@@ -52,4 +56,3 @@ ensure
   puts "Stopping adapter"
   adapter.stop
 end
-

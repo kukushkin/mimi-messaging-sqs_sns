@@ -7,6 +7,9 @@ module Mimi
       # Message consumer for SQS queues
       #
       class Consumer
+        # (seconds) determines how soon the NACK-ed message becomes visible to other consumers
+        NACK_VISIBILITY_TIMEOUT = 1
+
         def initialize(adapter, queue_url, &block)
           @stop_requested = false
           Mimi::Messaging.log "Starting consumer for: #{queue_url}"
@@ -47,6 +50,9 @@ module Mimi
           Mimi::Messaging.log "Read message from: #{queue_url}"
           block.call(message)
           ack_message(adapter, queue_url, message)
+        rescue Mimi::Messaging::NACK
+          Mimi::Messaging.log "NACK-ing message from: #{queue_url}"
+          nack_message(adapter, queue_url, message)
         rescue StandardError => e
           Mimi::Messaging.logger&.error(
             "#{self.class}: failed to read and process message from: #{queue_url}," \
@@ -67,9 +73,23 @@ module Mimi
           raise Mimi::Messaging::ConnectionError, "Unexpected number of messages read"
         end
 
+        # ACK-ing the message indicates successfull processing of it
+        # and removes the message from the queue
+        #
         def ack_message(adapter, queue_url, msg)
           adapter.sqs_client.delete_message(
             queue_url: queue_url, receipt_handle: msg.receipt_handle
+          )
+        end
+
+        # NACK-ing the message indicates a failure to process the message.
+        # The message becomes immediately available to other consumers.
+        #
+        def nack_message(adapter, queue_url, msg)
+          adapter.sqs_client.change_message_visibility(
+            queue_url: queue_url,
+            receipt_handle: msg.receipt_handle,
+            visibility_timeout: NACK_VISIBILITY_TIMEOUT
           )
         end
       end # class Consumer

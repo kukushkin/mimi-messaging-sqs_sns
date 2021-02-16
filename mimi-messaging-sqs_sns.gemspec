@@ -36,6 +36,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "mimi-messaging", "~> 1.2"
   spec.add_dependency "aws-sdk-sqs", "~> 1.22"
   spec.add_dependency "aws-sdk-sns", "~> 1.19"
+  spec.add_dependency "concurrent-ruby"
 
   spec.add_development_dependency "bundler", "~> 2.0"
   spec.add_development_dependency "pry", "~> 0.12"
