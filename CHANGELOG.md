@@ -2,6 +2,8 @@
 
 ## UNRELEASED
 
+## v0.8.0
+
 * [#3](https://github.com/kukushkin/mimi-messaging-sqs_sns/pull/3)
   * Added a worker pool:
     * now processing of messages from a single queue can be done in multiple parallel threads (workers)
