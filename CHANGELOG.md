@@ -2,6 +2,11 @@
 
 ## UNRELEASED
 
+## v0.8.2
+
+* [#7](https://github.com/kukushkin/mimi-messaging-sqs_sns/pull/7)
+  * Fixed an issue in the error processing, which could potentially crash the consumer threads
+
 ## v0.8.1
 
 * [#5](https://github.com/kukushkin/mimi-messaging-sqs_sns/pull/5)
