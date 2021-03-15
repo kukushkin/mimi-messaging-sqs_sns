@@ -48,14 +48,17 @@ module Mimi
           return unless message
 
           Mimi::Messaging.log "Read message from: #{queue_url}"
-          block.call(message)
-          ack_message(adapter, queue_url, message)
-        rescue Mimi::Messaging::NACK
-          Mimi::Messaging.log "NACK-ing message from: #{queue_url}"
+          adapter.worker_pool.post do
+            process_message(adapter, queue_url, message, block)
+          end
+        rescue Concurrent::RejectedExecutionError
+          # the backlog is overflown, put the message back
+          Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
+            "(workers:#{adapter.worker_pool.length}, backlog:#{adapter.worker_pool.queue_length})"
           nack_message(adapter, queue_url, message)
         rescue StandardError => e
           Mimi::Messaging.logger&.error(
-            "#{self.class}: failed to read and process message from: #{queue_url}," \
+            "#{self.class}: failed to read or process message from: #{queue_url}," \
             " error: (#{e.class}) #{e}"
           )
         end
@@ -71,6 +74,20 @@ module Mimi
           return result.messages.first if result.messages.count == 1
 
           raise Mimi::Messaging::ConnectionError, "Unexpected number of messages read"
+        end
+
+        def process_message(adapter, queue_url, message, block)
+          block.call(message)
+          ack_message(adapter, queue_url, message)
+        rescue Mimi::Messaging::NACK
+          Mimi::Messaging.log "NACK-ing message from: #{queue_url}"
+          nack_message(adapter, queue_url, message)
+        rescue StandardError => e
+          Mimi::Messaging.logger&.error(
+            "#{self.class}: failed to process message from: #{queue_url}," \
+            " error: (#{e.class}) #{e}"
+          )
+          # NOTE: message is neither ACKed or NACKed
         end
 
         # ACK-ing the message indicates successfull processing of it
