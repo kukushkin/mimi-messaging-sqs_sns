@@ -2,6 +2,11 @@
 
 ## UNRELEASED
 
+## v0.8.1
+
+* [#5](https://github.com/kukushkin/mimi-messaging-sqs_sns/pull/5)
+  * Refactored worker pool based message processing and error handling
+
 ## v0.8.0
 
 * [#3](https://github.com/kukushkin/mimi-messaging-sqs_sns/pull/3)
