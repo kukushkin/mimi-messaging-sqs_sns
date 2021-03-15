@@ -48,14 +48,16 @@ module Mimi
           return unless message
 
           Mimi::Messaging.log "Read message from: #{queue_url}"
-          adapter.worker_pool.post do
-            process_message(adapter, queue_url, message, block)
+          begin
+            adapter.worker_pool.post do
+              process_message(adapter, queue_url, message, block)
+            end
+          rescue Concurrent::RejectedExecutionError
+            # the backlog is overflown, put the message back
+            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
+              "(workers:#{adapter.worker_pool.length}, backlog:#{adapter.worker_pool.queue_length})"
+            nack_message(adapter, queue_url, message)
           end
-        rescue Concurrent::RejectedExecutionError
-          # the backlog is overflown, put the message back
-          Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
-            "(workers:#{adapter.worker_pool.length}, backlog:#{adapter.worker_pool.queue_length})"
-          nack_message(adapter, queue_url, message)
         rescue StandardError => e
           Mimi::Messaging.logger&.error(
             "#{self.class}: failed to read or process message from: #{queue_url}," \
@@ -87,7 +89,7 @@ module Mimi
             "#{self.class}: failed to process message from: #{queue_url}," \
             " error: (#{e.class}) #{e}"
           )
-          # NOTE: message is neither ACKed or NACKed
+          # NOTE: error is recovered and the message is neither ACKed or NACKed
         end
 
         # ACK-ing the message indicates successfull processing of it
@@ -108,6 +110,12 @@ module Mimi
             receipt_handle: msg.receipt_handle,
             visibility_timeout: NACK_VISIBILITY_TIMEOUT
           )
+        rescue StandardError => e
+          Mimi::Messaging.logger&.error(
+            "#{self.class}: failed to NACK message from: #{queue_url}," \
+            " error: (#{e.class}) #{e}"
+          )
+          # NOTE: error is recovered and the message is neither ACKed or NACKed
         end
       end # class Consumer
     end # module SQS_SNS
