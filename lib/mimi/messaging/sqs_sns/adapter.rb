@@ -186,14 +186,7 @@ module Mimi
           opts = opts.dup
           queue_url = find_or_create_queue(queue_name)
           @consumers << Consumer.new(self, queue_url) do |m|
-            worker_pool.post do
-              process_request_message(processor, m)
-            end
-          rescue Concurrent::RejectedExecutionError
-            # the backlog is overflown, put the message back
-            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
-              "(workers:#{worker_pool.length}, backlog:#{worker_pool.queue_length})"
-            raise Mimi::Messaging::NACK # exception raised in Consumer thread
+            process_request_message(processor, m)
           end
         end
 
@@ -210,14 +203,7 @@ module Mimi
           queue_url = find_or_create_queue(queue_name)
           subscribe_topic_queue(topic_arn, queue_url)
           @consumers << Consumer.new(self, queue_url) do |m|
-            worker_pool.post do
-              process_event_message(processor, m)
-            end
-          rescue Concurrent::RejectedExecutionError
-            # the backlog is overflown, put the message back
-            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
-              "(workers:#{worker_pool.length}, backlog:#{worker_pool.queue_length})"
-            raise Mimi::Messaging::NACK # exception raised in Consumer thread
+            process_event_message(processor, m)
           end
         end
 
