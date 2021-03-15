@@ -3,7 +3,7 @@
 module Mimi
   module Messaging
     module SQS_SNS
-      VERSION = "0.8.0"
+      VERSION = "0.8.1"
     end
   end
 end
