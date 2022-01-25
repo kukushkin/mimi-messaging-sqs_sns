@@ -64,6 +64,8 @@ module Mimi
 
           mq_aws_sqs_sns_kms_master_key_id: nil,
           mq_aws_sqs_read_timeout: 20, # seconds
+
+          mq_aws_sqs_cross_account_mapping: "",
         }.freeze
 
         # Initializes SQS/SNS adapter
@@ -77,9 +79,17 @@ module Mimi
         # @option options [String,nil] :mq_namespace
         # @option options [String,nil] :mq_reply_queue_prefix
         # @option options [Integer,nil] :mq_default_query_timeout
+        # @option options [String,nil] :mq_aws_sqs_cross_account_mapping
         #
         def initialize(options)
           @options = DEFAULT_OPTIONS.merge(options).dup
+
+          # Split cross account mapping into Hash with `queue` => `account_id`
+          @options[:cross_account_map] = Hash[
+            @options[:mq_aws_sqs_cross_account_mapping].split(",").map{|e|
+              e.split(":")
+            }
+          ]
           @reply_consumer_mutex = Mutex.new
         end
 
@@ -364,6 +374,10 @@ module Mimi
         #
         # If the queue with given name does not exist, returns nil
         #
+        # If the option mq_aws_sqs_cross_account_mapping is set,
+        # check queue name if it's owned by a different account
+        # and if look up the URL from that other account
+        #
         # @param queue_name [String]
         # @return [String,nil] queue URL
         #
@@ -371,7 +385,11 @@ module Mimi
           fqn = sqs_sns_converted_full_name(queue_name)
           @queue_registry ||= {}
           @queue_registry[fqn] ||= begin
-            result = sqs_client.get_queue_url(queue_name: fqn)
+            opts = {queue_name: fwn}
+            if options[:cross_account_map][queue_name]
+              opts[:queue_owner_aws_account_id] = options[:cross_account_map][queue_name]
+            end
+            result = sqs_client.get_queue_url(opts)
             result.queue_url
           end
         rescue Aws::SQS::Errors::NonExistentQueue
