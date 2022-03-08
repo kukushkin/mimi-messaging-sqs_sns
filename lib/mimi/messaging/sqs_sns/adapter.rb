@@ -185,7 +185,7 @@ module Mimi
           @consumers ||= []
           opts = opts.dup
           queue_url = find_or_create_queue(queue_name)
-          @consumers << Consumer.new(self, queue_url) do |m|
+          @consumers << Consumer.new(self, queue_url, worker_pool) do |m|
             process_request_message(processor, m)
           end
         end
@@ -202,7 +202,7 @@ module Mimi
           topic_arn = find_or_create_topic(topic_name) # TODO: or find_topic!(...) ?
           queue_url = find_or_create_queue(queue_name)
           subscribe_topic_queue(topic_arn, queue_url)
-          @consumers << Consumer.new(self, queue_url) do |m|
+          @consumers << Consumer.new(self, queue_url, worker_pool) do |m|
             process_event_message(processor, m)
           end
         end
