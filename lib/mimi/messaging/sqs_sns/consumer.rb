@@ -10,12 +10,20 @@ module Mimi
         # (seconds) determines how soon the NACK-ed message becomes visible to other consumers
         NACK_VISIBILITY_TIMEOUT = 1
 
-        def initialize(adapter, queue_url, &block)
+        # Creates a new Consumer to read and process messages from the given queue.
+        #
+        # @param adapter [Mimi::Messaging::SQS_SNS::Adapter]
+        # @param queue_url [String]
+        # @param worker_pool [Concurrent::ThreadPoolExecutor, nil] an optional worker pool to be used
+        #
+        def initialize(adapter, queue_url, worker_pool = nil, &block)
           @stop_requested = false
-          Mimi::Messaging.log "Starting consumer for: #{queue_url}"
+          @worker_pool = worker_pool
+          Mimi::Messaging.log "Starting consumer for: #{queue_url}, " \
+            " worker_pool: #{worker_pool ? "yes" : "no"}"
           @consumer_thread = Thread.new do
             while not @stop_requested
-              read_and_process_message(adapter, queue_url, block)
+              read_and_process_message(adapter, queue_url, worker_pool, block)
             end
             Mimi::Messaging.log "Stopping consumer for: #{queue_url}"
           end
@@ -41,30 +49,33 @@ module Mimi
         #
         # @param adapter [Mimi::Messaging::SQS_SNS::Adapter]
         # @param queue_url [String]
+        # @param worker_pool [Concurrent::ThreadPoolExecutor,nil]
         # @param block [Proc] a block to be invoked when a message is received
         #
-        def read_and_process_message(adapter, queue_url, block)
+        def read_and_process_message(adapter, queue_url, worker_pool, block)
           message = read_message(adapter, queue_url)
           return unless message
 
           Mimi::Messaging.log "Read message from: #{queue_url}"
-          begin
-            adapter.worker_pool.post do
-              process_message(adapter, queue_url, message, block)
-            end
-          rescue Concurrent::RejectedExecutionError
-            # the backlog is overflown, put the message back
-            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
-              "(workers:#{adapter.worker_pool.length}, backlog:#{adapter.worker_pool.queue_length})"
-            nack_message(adapter, queue_url, message)
+          if worker_pool
+            process_message_worker_pool(adapter, queue_url, worker_pool, message, block)
+          else
+            process_message(adapter, queue_url, message, block)
           end
         rescue StandardError => e
           Mimi::Messaging.logger&.error(
             "#{self.class}: failed to read or process message from: #{queue_url}," \
+            " worker_pool: #{worker_pool ? "yes" : "no"}" \
             " error: (#{e.class}) #{e}"
           )
         end
 
+        # Returns a message read from SQS queue
+        #
+        # @param adapter [Mimi::Messaging::SQS_SNS::Adapter]
+        # @param queue_url [String]
+        # @return [Hash] with stringified keys
+        #
         def read_message(adapter, queue_url)
           result = adapter.sqs_client.receive_message(
             queue_url: queue_url,
@@ -76,6 +87,26 @@ module Mimi
           return result.messages.first if result.messages.count == 1
 
           raise Mimi::Messaging::ConnectionError, "Unexpected number of messages read"
+        end
+
+        # Processes a received message using the worker pool
+        #
+        # @param adapter [Mimi::Messaging::SQS_SNS::Adapter]
+        # @param queue_url [String]
+        # @param worker_pool [Concurrent::ThreadPoolExecutor,nil]
+        # @param block [Proc] a block to be invoked when a message is received
+        #
+        def process_message_worker_pool(adapter, queue_url, worker_pool, message, block)
+          begin
+            worker_pool.post do
+              process_message(adapter, queue_url, message, block)
+            end
+          rescue Concurrent::RejectedExecutionError
+            # the backlog is overflown, put the message back
+            Mimi::Messaging.log "Worker pool backlog is full, nack-ing the message " \
+              "(workers:#{worker_pool.length}, backlog:#{worker_pool.queue_length})"
+            nack_message(adapter, queue_url, message)
+          end
         end
 
         def process_message(adapter, queue_url, message, block)

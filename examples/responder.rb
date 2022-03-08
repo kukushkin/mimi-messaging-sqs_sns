@@ -3,8 +3,8 @@
 require "mimi/messaging/sqs_sns"
 
 AWS_REGION            = "eu-west-1"
-AWS_SQS_ENDPOINT_URL  = "http://localstack:4566"
-AWS_SNS_ENDPOINT_URL  = "http://localstack:4566"
+AWS_SQS_ENDPOINT_URL  = "http://sqs-sns:4566"
+AWS_SNS_ENDPOINT_URL  = "http://sqs-sns:4566"
 AWS_ACCESS_KEY_ID     = "foo"
 AWS_SECRET_ACCESS_KEY = "bar"
 AWS_SQS_SNS_KMS_MASTER_KEY_ID = "blah"
